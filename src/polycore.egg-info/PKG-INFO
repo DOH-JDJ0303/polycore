@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: polycore
+Version: 1.1.0
+Summary: Core genome analysis for (poly)ploid organisms
+Author-email: Jared Johnson <jared.johnson@doh.wa.gov>
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.26.4
+Requires-Dist: screed<1.2,>=1.1
+Requires-Dist: psutil>=5.9
+Requires-Dist: plotly>=5.20
+Provides-Extra: viz
+Requires-Dist: plotly>=5.20; extra == "viz"

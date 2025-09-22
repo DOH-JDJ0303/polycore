@@ -1,0 +1,7 @@
+numpy>=1.26.4
+screed<1.2,>=1.1
+psutil>=5.9
+plotly>=5.20
+
+[viz]
+plotly>=5.20

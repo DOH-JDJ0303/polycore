@@ -1,0 +1,16 @@
+pyproject.toml
+src/polycore/__init__.py
+src/polycore/__main__.py
+src/polycore/cli.py
+src/polycore/collapse.py
+src/polycore/core_mask.py
+src/polycore/distance.py
+src/polycore/io_ops.py
+src/polycore/utils.py
+src/polycore.egg-info/PKG-INFO
+src/polycore.egg-info/SOURCES.txt
+src/polycore.egg-info/dependency_links.txt
+src/polycore.egg-info/entry_points.txt
+src/polycore.egg-info/requires.txt
+src/polycore.egg-info/top_level.txt
+tests/test_smoke.py
