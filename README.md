@@ -7,7 +7,7 @@ It loads reference and sample FASTA files, collapses identical sequences, filter
 - Variant alignment FASTA/VCF files
 - Pairwise distance matrices (wide and long formats)
 - Per-sample summary table
-- Progressive core fraction plot (HTML, requires Plotly)
+- Progressive core fraction plot (HTML)
 
 ---
 
@@ -34,6 +34,7 @@ pip install -e .
 > PolyCore requires Python 3.10+.
 Dependencies (numpy, screed, psutil, plotly) are installed automatically.
 
+---
 ## Usage
 Run PolyCore from the command line:
 ```
