@@ -10,9 +10,9 @@ ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_PROGRESS_BAR=off
 
-# System deps: tini (init), and common libs used by wheels
+# System deps: tini (init), certs, ps (procps), and bash for scripts
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      tini ca-certificates \
+      tini ca-certificates procps bash \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user

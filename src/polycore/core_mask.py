@@ -14,14 +14,14 @@ def filter_sequences(stack, names, valid_bases, min_gf=0.9):
 
     logging.info(f"Filtering {stack.shape[0]} sequences, min_gf={min_gf}")
     # Calculate genome fraction
-    gf = np.sum(stack_valid != 'N', axis=1) / stack_valid.shape[1]
+    gf = (np.sum(stack_valid != 'N', axis=1) / stack_valid.shape[1]).astype(float)
     keep = gf >= min_gf
 
     logging.info(f"Kept {np.sum(keep)}/{len(keep)} sequences")
     if np.any(~keep):
         logging.info(f"Sequences with genome fraction below {min_gf}: {names[~keep]}")
 
-    return stack_valid[keep, :], names[keep], gf[keep]
+    return stack_valid, gf, keep
 
 def find_core(stack, names, gf, threshold=1.0, progressive=True):
     """Calculate progressive core genome fraction."""
@@ -34,7 +34,7 @@ def find_core(stack, names, gf, threshold=1.0, progressive=True):
         logging.info(f"Sites below min-cf ({threshold}): {np.sum(~core_mask)}")
         logging.info(f"Final core fraction: {core_fraction:.2f}")
         stack_core = stack[:, core_mask]
-        return stack_core, names, [core_fraction] * len(names)
+        return stack_core, names, [np.nan] * len(names)
 
     logging.info('Determing soft-core (progressive):')
     sort_indices = np.argsort(gf[1:])[::-1] + 1

@@ -37,36 +37,57 @@ def main(argv=None):
         files = [args.ref] + args.sample
         sequences, orig_names = load_sequences(files)
 
-        sequences, rep_names, idx_map = collapse_sequences(sequences, orig_names)
+        # Collapse → bitmaps → stack
+        sequences, names_rep, idx_map = collapse_sequences(sequences, orig_names)
         ploidy, bit_map, bit_lut = set_ploidy(sequences, IUPAC_BITS, args.ploidy)
         stack, valid_bases = create_stack(sequences, bit_map)
 
-        stack, names_filt, gf = filter_sequences(stack, np.array(rep_names), valid_bases, args.min_gf)
-        core, names_core, cfs = find_core(stack, names_filt, gf, threshold=args.min_cf, progressive=args.progressive)
+        # Filtering
+        stack_valid, gf, filter_mask = filter_sequences(
+            stack, np.array(names_rep), valid_bases, args.min_gf
+        )
+        stack_filt  = stack_valid[filter_mask, :]
+        names_filt  = np.array(names_rep)[filter_mask]
+        gf_filt     = gf[filter_mask]
+
+        # Core only on kept reps
+        core, names_core, cfs = find_core(
+            stack_filt, names_filt, gf_filt,
+            threshold=args.min_cf, progressive=args.progressive
+        )
+
+        # Vars on core set
         vars = find_const(core, names_core, ploidy, args.min_pf, args.min_pn)
 
+        # Distances on core variants
         bits = to_bits(vars, bit_lut)
-        chunk_size = args.chunk_size or auto_chunk_size(bits.shape[0])  # note: n_samples drives memory, not sites
-
+        chunk_size = args.chunk_size or auto_chunk_size(bits.shape[0])
         diffs = calculate_distances(bits, ploidy, chunk_size)
 
-        # Expand back to original names
-        stack_full, names_full = expand_results(stack, names_filt, idx_map, orig_names)
-        core_full, names_full  = expand_results(core, names_core, idx_map, orig_names)
-        vars_full, names_full  = expand_results(vars, names_core, idx_map, orig_names)
-        diffs_full, names_full = expand_distances(diffs, names_core, idx_map, orig_names)
-        gf_full  = expand_vector(gf,  names_filt, idx_map)
-        cfs_full = expand_vector(cfs, names_core, idx_map)
+        # ---------------- Expansion strategy ----------------
+        no_mask = np.full(stack_valid.shape[0], True, dtype=bool)
+        stack_exp, names_exp = expand_results(stack_valid, no_mask, idx_map, orig_names)
+        gf_exp, _ = expand_results(np.array(gf),  no_mask, idx_map,  orig_names)
+        cfs_exp, _ = expand_results(np.array(cfs), filter_mask, idx_map, orig_names)
+        core_exp, names_core_exp = expand_results(core, filter_mask, idx_map, orig_names, keep_filtered=False)
+        vars_exp, _ = expand_results(vars, filter_mask, idx_map, orig_names, keep_filtered=False)
+        diffs0_exp, _ = expand_results(diffs[0,:], filter_mask, idx_map, orig_names)
+        diffs_exp, diffs_exp_names  = expand_distances(diffs, filter_mask, idx_map, orig_names)
 
-        write_distances(names_full, diffs_full)
-        write_summary(names_full, stack_full, gf_full, cfs_full, diffs_full[0, :].tolist())
-        write_fasta_from_array(core_full, names_full, 'core.full.aln')
-        write_fasta_from_array(vars_full, names_full, 'core.aln')
-        write_vcf_from_array(vars_full, names_full, 'core.vcf')
+        # ---------------- Write outputs ----------------
+        # Distances/FASTA/VCF: only core set (no filtered samples)
+        write_distances(diffs_exp_names, diffs_exp)
+        write_fasta_from_array(core_exp, names_core_exp, "core.full.aln")
+        write_fasta_from_array(vars_exp, names_core_exp, "core.aln")
+        write_vcf_from_array(vars_exp, names_core_exp, "core.vcf")
+
+        # Summary: all originals
+        write_summary(names_exp, stack_exp, gf_exp, cfs_exp, diffs0_exp)
 
         logger.info(f"Done in {time.time()-start:.1f}s")
 
-    except Exception as e:
+    except Exception:
         logger = logging.getLogger(__name__)
-        logger.error(f"Failed after {time.time()-start:.1f}s: {e}")
+        logger.exception("Failed after %.1fs", time.time() - start)
         sys.exit(1)
+

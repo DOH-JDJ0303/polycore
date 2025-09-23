@@ -1,14 +1,17 @@
 from typing import List, Tuple, Dict, Optional
 import numpy as np, logging
 
-def collapse_sequences(sequences: List[str], names: List[str]):
+def collapse_sequences(sequences: List[str], names: List[str]) -> Tuple[List[str], List[str], Dict[int, List[int]]]:
     """
     Collapse identical sequences.
+
     Returns:
-        unique_sequences: list of unique sequence strings
-        rep_names: representative names
-        idx_map: dict {rep_idx -> [orig_indices]} mapping reps to their group
+        unique_sequences : list of unique sequence strings
+        rep_names        : representative names
+        idx_map          : dict {rep_idx -> [orig_indices]} mapping reps to their group
     """
+    logger = logging.getLogger(__name__)
+
     seen = {}
     idx_map: Dict[int, List[int]] = {}
     unique_sequences = []
@@ -31,42 +34,76 @@ def collapse_sequences(sequences: List[str], names: List[str]):
             rep_names.append(name)
             idx_map[rep_idx] = [i]
 
+    # summary: report which originals collapsed into which rep
+    for rep_idx, orig_idxs in idx_map.items():
+        group_names = [names[j] for j in orig_idxs]
+        if len(group_names) > 1:
+            logger.info(f"Identical samples will be treated as one: {group_names} -> ")
+
     return unique_sequences, rep_names, idx_map
 
-def expand_results(array: np.ndarray, names: List[str], idx_map: Dict[int, List[int]], orig_names: List[str]):
-    expanded_array = []
+def expand_results(filtered_array: np.ndarray, filter_mask: np.ndarray, idx_map: Dict[int, List[int]], orig_names: List[str], keep_filtered: bool = True):
+    """
+    Expand filtered results back to original sample space.
+    Works for both 1D and 2D arrays.
+    """
+    fi = 0  # Index into filtered_array
+    expanded_rows = []
     expanded_names = []
-    for rep_idx, rep in enumerate(names):
-        for orig_idx in idx_map[rep_idx]:
-            expanded_array.append(array[rep_idx])
-            expanded_names.append(orig_names[orig_idx])
-    return np.vstack(expanded_array), expanded_names
+    
+    for mi, oi in idx_map.items():
+        if filter_mask[mi]:
+            val = filtered_array[fi]
+            fi += 1
+        else:
+            if not keep_filtered:
+                continue
+            # Create appropriate null value based on array dimensions
+            if filtered_array.ndim == 1:
+                val = np.nan
+            else:
+                # For 2D, create a row of NaNs with same width as filtered_array
+                val = np.full(filtered_array.shape[1], np.nan)
+        
+        # Expand to all original samples in this group
+        for i in oi:
+            expanded_rows.append(val)
+            expanded_names.append(orig_names[i])
+    
+    return np.array(expanded_rows), expanded_names
 
+def expand_distances(diffs, filter_mask, idx_map, orig_names):
+    """
+    Expand a rep-level distance matrix to original samples,
+    but only for reps where filter_mask is True.
+    """
+    # 1) Ordered kept reps by rep index so fi/fj match rows/cols in `diffs`
+    kept_reps = [r for r, keep in enumerate(filter_mask) if keep]
 
-def expand_distances(diffs: np.ndarray, names: List[str], idx_map: Dict[int, List[int]], orig_names: List[str]):
-    expanded_names = []
-    for rep_idx, rep in enumerate(names):
-        for orig_idx in idx_map[rep_idx]:
-            expanded_names.append(orig_names[orig_idx])
+    # 2) Build expanded name list once (length == total originals among kept reps)
+    expanded_names = [orig_names[i]
+                      for rep in kept_reps
+                      for i in idx_map[rep]]
 
-    n = len(expanded_names)
-    expanded_diffs = np.zeros((n, n), dtype=int)
+    # 3) Allocate expanded distance matrix and fill by blocks
+    sizes = [len(idx_map[rep]) for rep in kept_reps]
+    n = sum(sizes)
+    expanded = np.empty((n, n), dtype=diffs.dtype)
 
-    row_map = {}
-    k = 0
-    for rep_idx, rep in enumerate(names):
-        for orig_idx in idx_map[rep_idx]:
-            row_map[orig_idx] = k
-            k += 1
+    r0 = 0
+    for a, rep_a in enumerate(kept_reps):
+        ga = idx_map[rep_a]        # original indices in this group
+        ra = len(ga)
+        c0 = 0
+        for b, rep_b in enumerate(kept_reps):
+            gb = idx_map[rep_b]
+            rb = len(gb)
+            expanded[r0:r0+ra, c0:c0+rb] = diffs[a, b]
+            c0 += rb
+        r0 += ra
 
-    for i, rep_i in enumerate(names):
-        for j, rep_j in enumerate(names):
-            d = diffs[i, j]
-            for orig_i in idx_map[i]:
-                for orig_j in idx_map[j]:
-                    expanded_diffs[row_map[orig_i], row_map[orig_j]] = d
+    return expanded, expanded_names
 
-    return expanded_diffs, expanded_names
 
 
 def expand_vector(vector: np.ndarray, names: List[str], idx_map: Dict[int, List[int]]):

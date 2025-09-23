@@ -131,7 +131,7 @@ def write_vcf_from_array(array: np.ndarray, names: List[str], filename: str) -> 
 
     logging.info(f"Saved file -> {filename}")
 
-def write_summary(names, stack, gf, cf, variants=None):
+def write_summary(names, stack, gf, cf, variants):
     """
     Write per-sample summary:
       - name
@@ -151,8 +151,8 @@ def write_summary(names, stack, gf, cf, variants=None):
             str(length),
             str(missing[i]),
             f"{gf[i]:.6f}",
-            f"{cf[i]:.6f}" if cf is not None else "",
-            str(variants[i]) if variants is not None else ""
+            f"{cf[i]:.6f}",
+            str(variants[i])
         ]
         lines.append(",".join(row))
 
