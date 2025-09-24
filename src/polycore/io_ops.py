@@ -3,17 +3,30 @@ import numpy as np, logging, screed, os
 import plotly.graph_objects as go
 import plotly.io as pio
 
+def get_fasta_name(filepath):
+    basename = os.path.basename(filepath)
+    
+    # Remove .gz if present
+    if basename.endswith('.gz'):
+        basename = os.path.splitext(basename)[0]
+    
+    # Remove fasta extension and return
+    return os.path.splitext(basename)[0]
+
 def load_sequences(files: List[str]) -> Tuple[List[str], List[str]]:
     sequences, names = [], []
     logging.info(f"Loading {len(files)} FASTA files...")
     for i, filepath in enumerate(files, 1):
-        name = 'Reference' if i == 1 else os.path.splitext(os.path.basename(filepath))[0]
+        name = 'Reference' if i == 1 else get_fasta_name(filepath)
         seq_parts = []
         with screed.open(filepath) as handle:
             for record in handle:
                 seq_parts.append(record['sequence'].upper())
         seq = ''.join(seq_parts)
         sequences.append(seq)
+        if name in names:
+            logging.error(f"ERROR: File basenames must be unique: {name}")
+            exit(1)
         names.append(name)
         seq_len = len(seq)
         if i == 1:
