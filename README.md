@@ -24,7 +24,12 @@ It loads reference and sample FASTA files, collapses identical sequences, filter
 
 ## Installation
 
-Clone the repository and install:
+#### Option 1 - Use the container (Preferred Method):
+```
+docker pull public.ecr.aws/o8h2f0o1/polycore:1.0
+```
+
+#### Option 2 - Clone the repository and install:
 
 ```bash
 git clone https://github.com/WA-DOH/polycore.git
