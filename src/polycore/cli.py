@@ -13,7 +13,8 @@ def build_parser():
     p = argparse.ArgumentParser(description="PolyCore - Core genome analysis on polyploid organisms")
     p.add_argument("input", nargs="+", help="Input sequences")
     p.add_argument("--ref", help="Reference FASTA file")
-    p.add_argument("--min-gf", type=float, default=0.9, help="Minimum genome fraction per args.input")
+    p.add_argument("--mask", help="Bed file with coordinates of sites to exclude.")
+    p.add_argument("--min-gf", type=float, default=0.9, help="Minimum genome fraction per input")
     p.add_argument("--min-cf", type=float, default=0.95, help="Minimum fraction with valid data per site")
     p.add_argument("--min-pf", type=float, default=0, help="Min fraction with alt per site (SNP vs SNV)")
     p.add_argument("--min-pn", type=float, default=0, help="Min # args.inputs with alt per site (SNP vs SNV)")
@@ -50,7 +51,7 @@ def main(argv=None):
 
         # Filtering
         stack_valid, gf, filter_mask = filter_sequences(
-            stack, np.array(names_rep), valid_bases, args.min_gf
+            stack, np.array(names_rep), valid_bases, args.min_gf, args.mask
         )
         stack_filt  = stack_valid[filter_mask, :]
         names_filt  = np.array(names_rep)[filter_mask]

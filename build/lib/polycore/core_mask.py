@@ -3,17 +3,67 @@ from typing import List, Tuple, Dict, Optional
 from collections import Counter
 from .io_ops import create_plot
 
-def filter_sequences(stack, names, valid_bases, min_gf=0.9):
+def read_bed(path):
+    """
+    Read the first 3 columns of a BED file.
+    Returns a list of (chrom, start, end) tuples.
+    """
+    out = []
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("#") or not line.strip():
+                continue
+            chrom, start, end = line.split()[:3]
+            out.append((chrom, int(start), int(end)))
+    return out
+
+def filter_sequences(stack, names, valid_bases, min_gf=0.9, bed=None):
+    """
+    Filter and mask sequences.
+
+    - stack: 2D numpy array of shape (n_seqs, n_sites), dtype='U1' (chars)
+    - names: list of sequence names, length n_seqs
+    - valid_bases: iterable of valid characters (e.g. ['A','C','G','T','-'])
+    - min_gf: minimum genome fraction to keep a sequence
+    - bed: optional path to BED file with regions to mask (0-based, half-open)
+
+    Returns: (stack_valid, gf, keep_mask)
+    """
     names = np.array(names)  # ensure numpy array
-    # Filter invalid bases in reference
+
+    # Filter invalid bases in reference (drop columns where ref is not in valid_bases)
     ref = stack[0]
-    stack_valid = stack[:, np.isin(ref, valid_bases)]
+    ref_valid_mask = np.isin(ref, valid_bases)
+    stack_valid = stack[:, ref_valid_mask]
     logging.info(f"Removed {stack.shape[1] - stack_valid.shape[1]} invalid reference positions")
+
     # Mask invalid bases in all samples
     stack_valid[~np.isin(stack_valid, valid_bases)] = 'N'
 
-    logging.info(f"Filtering {stack.shape[0]} sequences, min_gf={min_gf}")
-    # Calculate genome fraction
+    # Mask sites specified in BED (set to 'N' in all sequences)
+    mask = None
+    if bed is not None:
+        mask = read_bed(bed)   # [(chrom, start, end), ...]
+        logging.info(f"Loaded {len(mask)} mask intervals from {bed}")
+        if mask:
+            n_sites = stack_valid.shape[1]
+            mask_cols = np.zeros(n_sites, dtype=bool)
+
+            for _, start, end in mask:
+                # Clip to alignment bounds, and be robust to non-int inputs
+                start = max(0, int(start))
+                end   = min(n_sites, int(end))
+                if start < end:
+                    mask_cols[start:end] = True
+
+            n_masked = int(mask_cols.sum())
+            if n_masked > 0:
+                stack_valid[:, mask_cols] = 'N'
+                logging.info(f"Masked {n_masked} sites from BED regions")
+
+    logging.info(f"Filtering {stack_valid.shape[0]} sequences, min_gf={min_gf}")
+
+    # Calculate genome fraction (fraction of non-N sites)
     gf = (np.sum(stack_valid != 'N', axis=1) / stack_valid.shape[1]).astype(float)
     keep = gf >= min_gf
 
@@ -22,6 +72,7 @@ def filter_sequences(stack, names, valid_bases, min_gf=0.9):
         logging.info(f"Sequences with genome fraction below {min_gf}: {names[~keep]}")
 
     return stack_valid, gf, keep
+
 
 def find_core(stack, names, gf, threshold=1.0, progressive=True):
     """Calculate progressive core genome fraction."""
