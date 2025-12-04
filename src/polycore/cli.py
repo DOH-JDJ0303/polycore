@@ -21,6 +21,8 @@ def build_parser():
     p.add_argument("--ploidy", type=int)
     p.add_argument("--chunk-size", type=int, help="Sites per chunk for pairwise diffs (controls memory)")
     p.add_argument("--split", action='store_true', help="Treat each contig in a multi-fasta file as a separate sample.")
+    p.add_argument("--ref-by-name", action='store_true', help="The file or contig labelled as 'reference' is treated as the reference ('not case sensitive).")
+    p.add_argument("--snippy", action='store_true', help="Shortcut when using the Snippy *.full.aln file as input. Sets 'split' and 'ref-by-name' to True.")
     p.add_argument("--version", action="version", version=__version__)
     return p
 
@@ -35,8 +37,11 @@ def main(argv=None):
     logger.info(f"PolyCore v{__version__} starting")
 
     try:
+        split       = True if args.snippy else args.split
+        ref_by_name = True if args.snippy else args.split
+
         files = [args.ref] + args.input if args.ref else args.input
-        sequences, orig_names = load_sequences(files, split=args.split)
+        sequences, orig_names = load_sequences(files, split=split, ref_by_name=ref_by_name)
 
         # Collapse → bitmaps → stack
         sequences, names_rep, idx_map = collapse_sequences(sequences, orig_names)

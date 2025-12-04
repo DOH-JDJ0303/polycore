@@ -20,12 +20,13 @@ def sanitize_name(name: str) -> str:
     return re.sub(r'[^A-Za-z0-9._-]', '_', name)
 
 
-def load_sequences(files: List[str], split: bool = False) -> Tuple[List[str], List[str]]:
+def load_sequences(files: List[str], split: bool = False, ref_by_name: bool = False) -> Tuple[List[str], List[str]]:
     sequences, names = [], []
     logging.info(f"Loading {len(files)} FASTA files...")
 
     ref_len = None
     is_first_sequence = True  # Track if we're processing the first sequence overall
+    reference_found = False  # Track if we found a sequence labeled "reference"
 
     for i, filepath in enumerate(files, 1):
 
@@ -35,8 +36,19 @@ def load_sequences(files: List[str], split: bool = False) -> Tuple[List[str], Li
                 seq_parts = [rec['sequence'].upper() for rec in handle]
                 seq = ''.join(seq_parts)
                 
-                # Name: 'Reference' for first file, filename for others
-                name = 'Reference' if is_first_sequence else get_fasta_name(filepath)
+                # Determine name based on ref_by_name setting
+                if ref_by_name:
+                    # Check if filename indicates this is the reference
+                    base_name = get_fasta_name(filepath)
+                    if base_name.lower() == 'reference':
+                        name = 'Reference'
+                        reference_found = True
+                    else:
+                        name = base_name
+                else:
+                    # Original behavior: first file is reference
+                    name = 'Reference' if is_first_sequence else get_fasta_name(filepath)
+                
                 is_first_sequence = False
 
                 # uniqueness check
@@ -62,8 +74,18 @@ def load_sequences(files: List[str], split: bool = False) -> Tuple[List[str], Li
                     seq = rec['sequence'].upper()
                     seq_len = len(seq)
 
-                    # Name: 'Reference' for first contig, filename__contig for others
-                    name = 'Reference' if is_first_sequence else sanitize_name(contig)
+                    # Determine name based on ref_by_name setting
+                    if ref_by_name:
+                        # Check if contig name indicates this is the reference
+                        if contig.lower() == 'reference':
+                            name = 'Reference'
+                            reference_found = True
+                        else:
+                            name = sanitize_name(contig)
+                    else:
+                        # Original behavior: first contig is reference
+                        name = 'Reference' if is_first_sequence else sanitize_name(contig)
+                    
                     is_first_sequence = False
 
                     # uniqueness
@@ -84,6 +106,13 @@ def load_sequences(files: List[str], split: bool = False) -> Tuple[List[str], Li
                     names.append(name)
 
                     logging.info(f"  {i}/{len(files)}: {name} ({seq_len:,} bp)")
+
+    # Check if reference was found when ref_by_name is True
+    if ref_by_name and not reference_found:
+        raise ValueError(
+            "ERROR: ref_by_name=True but no file or contig labeled 'reference' was found. "
+            "Please ensure one input is named 'reference' (case insensitive)."
+        )
 
     logging.info(f"Loaded {len(sequences)} sequences (split={split})")
     return sequences, names
