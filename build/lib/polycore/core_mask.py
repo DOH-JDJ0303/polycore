@@ -28,6 +28,9 @@ def filter_sequences(stack, names, valid_bases, min_gf=0.9, bed=None):
     - bed: optional path to BED file with regions to mask (0-based, half-open)
 
     Returns: (stack_valid, gf, keep_mask)
+    
+    Raises:
+        ValueError: If all sites are masked or no sequences pass the filter
     """
     names = np.array(names)  # ensure numpy array
 
@@ -36,9 +39,29 @@ def filter_sequences(stack, names, valid_bases, min_gf=0.9, bed=None):
     ref_valid_mask = np.isin(ref, valid_bases)
     stack_valid = stack[:, ref_valid_mask]
     logging.info(f"Removed {stack.shape[1] - stack_valid.shape[1]} invalid reference positions")
+    
+    # Check if all sites were removed
+    if stack_valid.shape[1] == 0:
+        raise ValueError("All sites were filtered out due to invalid reference bases")
 
     # Mask invalid bases in all samples
     stack_valid[~np.isin(stack_valid, valid_bases)] = 'N'
+
+    logging.info(f"Filtering {stack_valid.shape[0]} sequences, min_gf={min_gf}")
+
+    # Calculate genome fraction (fraction of non-N sites)
+    gf = (np.sum(stack_valid != 'N', axis=1) / stack_valid.shape[1]).astype(float)
+    keep = gf >= min_gf
+
+    logging.info(f"Kept {np.sum(keep)}/{len(keep)} sequences")
+    
+    # Check if no sequences pass the filter
+    if np.sum(keep) == 0:
+        raise ValueError(f"No sequences passed the genome fraction filter (min_gf={min_gf}). "
+                        f"Maximum genome fraction was {gf.max():.3f}")
+    
+    if np.any(~keep):
+        logging.info(f"Sequences with genome fraction below {min_gf}: {names[~keep]}")
 
     # Mask sites specified in BED (set to 'N' in all sequences)
     mask = None
@@ -60,16 +83,10 @@ def filter_sequences(stack, names, valid_bases, min_gf=0.9, bed=None):
             if n_masked > 0:
                 stack_valid[:, mask_cols] = 'N'
                 logging.info(f"Masked {n_masked} sites from BED regions")
-
-    logging.info(f"Filtering {stack_valid.shape[0]} sequences, min_gf={min_gf}")
-
-    # Calculate genome fraction (fraction of non-N sites)
-    gf = (np.sum(stack_valid != 'N', axis=1) / stack_valid.shape[1]).astype(float)
-    keep = gf >= min_gf
-
-    logging.info(f"Kept {np.sum(keep)}/{len(keep)} sequences")
-    if np.any(~keep):
-        logging.info(f"Sequences with genome fraction below {min_gf}: {names[~keep]}")
+                
+                # Check if all sites are now masked
+                if n_masked == n_sites:
+                    raise ValueError("All sites were masked by BED regions")
 
     return stack_valid, gf, keep
 
