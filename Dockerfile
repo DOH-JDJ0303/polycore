@@ -48,6 +48,3 @@ WORKDIR /workspace
 
 # Use tini as minimal init to handle signals properly
 ENTRYPOINT ["/usr/bin/tini", "--"]
-
-# Expose the CLI by default; override with `docker run ... polycore --help`
-CMD ["polycore", "--help"]

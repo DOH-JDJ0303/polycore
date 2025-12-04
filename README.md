@@ -43,7 +43,10 @@ Dependencies (numpy, screed, psutil, plotly) are installed automatically.
 ## Usage
 Run PolyCore from the command line:
 ```
-polycore --ref reference.fasta --sample sample1.fasta sample2.fasta --progressive
+polycore \
+    --progressive \
+    --ref reference.fasta \
+    sample1.fasta sample2.fasta
 ```
 ### Common options
 - `--min-gf` : Minimum genome fraction per sample (default: 0.9)
@@ -52,6 +55,8 @@ polycore --ref reference.fasta --sample sample1.fasta sample2.fasta --progressiv
 - `--min-pn` : Minimum number of samples with alt allele per site
 - `--ploidy` : Force ploidy (otherwise auto-detected)
 - `--progressive` : Enable soft-core (progressive) calculation
+- `--split` : Treat each contig in each assembly as a separate sample
+
 
 For full options:
 ```

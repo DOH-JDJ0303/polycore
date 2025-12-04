@@ -1,3 +1,5 @@
+LICENSE
+README.md
 pyproject.toml
 src/polycore/__init__.py
 src/polycore/__main__.py
