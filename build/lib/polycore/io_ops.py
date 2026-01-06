@@ -3,6 +3,7 @@ import numpy as np, logging, screed, os
 import plotly.graph_objects as go
 import plotly.io as pio
 import re
+from collections import defaultdict
 
 def get_fasta_name(filepath):
     basename = os.path.basename(filepath)
@@ -20,112 +21,74 @@ def sanitize_name(name: str) -> str:
     return re.sub(r'[^A-Za-z0-9._-]', '_', name)
 
 
-def load_sequences(files: List[str], split: bool = False, ref_by_name: bool = False) -> Tuple[List[str], List[str]]:
-    sequences, names = [], []
+def load_sequences(files: List[str], split: bool = False, ref_by_name: bool = False) -> Dict[str, Dict[str, str]]:
     logging.info(f"Loading {len(files)} FASTA files...")
 
-    ref_len = None
-    is_first_sequence = True  # Track if we're processing the first sequence overall
-    reference_found = False  # Track if we found a sequence labeled "reference"
-
+    seq_map = defaultdict(lambda: defaultdict(dict))
+    first_name = None
+    
     for i, filepath in enumerate(files, 1):
-
         with screed.open(filepath) as handle:
+            for e, rec in enumerate(handle):
 
-            if not split:
-                seq_parts = [rec['sequence'].upper() for rec in handle]
-                seq = ''.join(seq_parts)
-                
-                # Determine name based on ref_by_name setting
-                if ref_by_name:
-                    # Check if filename indicates this is the reference
-                    base_name = get_fasta_name(filepath)
-                    if base_name.lower() == 'reference':
-                        name = 'Reference'
-                        reference_found = True
-                    else:
-                        name = base_name
+                if split:
+                    name = sanitize_name(rec['name'])
+                    contig = 'contig'
                 else:
-                    # Original behavior: first file is reference
-                    name = 'Reference' if is_first_sequence else get_fasta_name(filepath)
-                
-                is_first_sequence = False
+                    name   = get_fasta_name(filepath)
+                    contig = sanitize_name(rec['name'])
 
-                # uniqueness check
-                if name in names:
-                    logging.error(f"ERROR: Non-unique basename: {name}")
-                    exit(1)
+                if i == 1 and e == 0:
+                    first_name = name
 
-                sequences.append(seq)
-                names.append(name)
+                seq_map[name][e] = { 'contig': contig, 'sequence': rec['sequence'].upper() }
 
-                seq_len = len(seq)
-                if ref_len is None:
-                    ref_len = seq_len
-                if seq_len != ref_len:
-                    raise ValueError(f"Sample length ({seq_len:,}) differs from reference {ref_len:,}: {filepath}")
+    # Check for duplicate names after loading all files
+    if len(seq_map) != len(files) and not split:
+        raise ValueError(f"Multiple files with the same name detected")
 
-                logging.info(f"  {i}/{len(files)}: {name} ({seq_len:,} bp)")
+    # Determine reference
+    if ref_by_name:
+        ref_name = next((n for n in seq_map.keys() if n.lower() == 'reference'), None)
+    else:
+        ref_name = first_name
 
-            else:
-                # ---- Split (Per-Contig) ----
-                for rec in handle:
-                    contig = rec['name']
-                    seq = rec['sequence'].upper()
-                    seq_len = len(seq)
+    if not ref_name:
+        raise ValueError("Reference could not be determined!")
 
-                    # Determine name based on ref_by_name setting
-                    if ref_by_name:
-                        # Check if contig name indicates this is the reference
-                        if contig.lower() == 'reference':
-                            name = 'Reference'
-                            reference_found = True
-                        else:
-                            name = sanitize_name(contig)
-                    else:
-                        # Original behavior: first contig is reference
-                        name = 'Reference' if is_first_sequence else sanitize_name(contig)
-                    
-                    is_first_sequence = False
+    logging.info(f"Using {ref_name} as reference.")
 
-                    # uniqueness
-                    if name in names:
-                        logging.error(f"ERROR: Duplicate contig-derived name: {name}")
-                        exit(1)
+    ref_seq = seq_map[ref_name]
+    # always have reference as first
+    names     = [ ref_name ]
+    contigs   = [ r['contig'] for r in ref_seq.values()     ]
+    sequences = [ [r['sequence'] for r in ref_seq.values()] ]
 
-                    # reference length handling
-                    if ref_len is None:
-                        ref_len = seq_len
-                    if seq_len != ref_len:
-                        raise ValueError(
-                            f"Contig length mismatch: {name} has {seq_len:,} bp "
-                            f"but reference has {ref_len:,} bp"
-                        )
+    for name, v1 in seq_map.items():
+        if name == ref_name:
+            continue
+        if len(v1) != len(sequences[0]):
+            raise ValueError(f"{name} contains a different number of contigs than the reference!")
+        seq_list = []
+        for e, v2 in v1.items():
+            if len(v2['sequence']) != len(ref_seq[e]['sequence']):
+                raise ValueError(f"Contig {e} in sample {name} is a different length than the reference!")
+            seq_list.append(v2['sequence'])
 
-                    sequences.append(seq)
-                    names.append(name)
+        names.append(name)
+        sequences.append(seq_list)
 
-                    logging.info(f"  {i}/{len(files)}: {name} ({seq_len:,} bp)")
-
-    # Check if reference was found when ref_by_name is True
-    if ref_by_name and not reference_found:
-        raise ValueError(
-            "ERROR: ref_by_name=True but no file or contig labeled 'reference' was found. "
-            "Please ensure one input is named 'reference' (case insensitive)."
-        )
-
-    logging.info(f"Loaded {len(sequences)} sequences (split={split})")
-    return sequences, names
+    return sequences, names, contigs
 
 def write_distances(names: List[str], diffs: np.ndarray) -> None:
     """Write distance matrices in wide and long formats."""
     # Wide format
+    cols = np.array(['name'] + names)
+    rows = np.array(names)
+    out = np.column_stack((rows, diffs.astype(str)))
+    out = np.vstack((cols, out))
     filename = 'dist_wide.csv'
-    with open('dist_wide.csv', 'w') as f:
-        f.write("name," + ",".join(names) + "\n")
-        for name, row in zip(names, diffs):
-            row_str = ",".join(str(int(x)) if np.isfinite(x) else "" for x in row)
-            f.write(f"{name},{row_str}\n")
+    np.savetxt(filename, out, delimiter=",", fmt="%s")
     logging.info(f"Saved filed -> {filename}")
     
     # Long format
@@ -141,88 +104,6 @@ def write_distances(names: List[str], diffs: np.ndarray) -> None:
                 n_pairs += 1
     logging.info(f"Saved filed -> {filename}")
     logging.info(f"Distance matrices: {n_pairs} pairwise comparisons")
-
-def write_fasta_from_array(array: np.ndarray, names: List[str], filename: str) -> None:
-    """
-    Write a 2D array of bases (rows = samples, cols = bases) with associated names to a FASTA file.
-
-    Args:
-        array: 2D numpy array of shape (n_samples, n_bases), dtype 'U1' or str.
-        names: List of sample names (length n_samples).
-        filename: Path to output FASTA file.
-    """
-    if array.shape[0] != len(names):
-        raise ValueError("Number of names must match number of rows in array")
-
-    with open(filename, "w") as f:
-        for name, row in zip(names, array):
-            seq = "".join(row.tolist())
-            f.write(f">{name}\n{seq}\n")
-    logging.info(f'Saved file -> {filename}')
-
-def write_vcf_from_array(array: np.ndarray, names: List[str], filename: str) -> None:
-    """
-    Write a VCF file in the same style as `snp-sites -v`.
-    
-    Parameters
-    ----------
-    array : np.ndarray
-        2D array of shape (n_samples, n_sites).
-        Values should be strings: REF base in column 0, ALT base in other entries,
-        or '0'/'1' already encoded as genotypes.
-    names : List[str]
-        Sample names, order matches rows in array.
-    filename : str
-        Path to output VCF file.
-    """
-    if array.shape[0] != len(names):
-        raise ValueError("Number of names must match number of rows in array")
-
-    n_sites = array.shape[1]
-
-    # Build header
-    header = [
-        "##fileformat=VCFv4.1",
-        f"##contig=<ID=1,length={n_sites}>",
-        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">'
-    ]
-    cols = [
-        "#CHROM", "POS", "ID", "REF", "ALT",
-        "QUAL", "FILTER", "INFO", "FORMAT"
-    ] + names
-
-    with open(filename, "w") as f:
-        # Write header lines
-        for line in header:
-            f.write(line + "\n")
-        f.write("\t".join(cols) + "\n")
-
-        # Iterate over sites
-        for pos in range(n_sites):
-            # Column slice: genotypes at this site
-            site = array[:, pos]
-
-            # Define REF as allele in the first sample
-            ref = site[0]
-            alts = sorted(set(site) - {ref, "0"})
-
-            alt = ",".join(alts) if alts else "."
-
-            # Map alleles to 0 (REF) / 1 (ALT)
-            allele_map = {ref: "0"}
-            if alts:
-                for i, a in enumerate(alts, start=1):
-                    allele_map[a] = str(i)
-
-            genotypes = [allele_map.get(x, "0") for x in site]
-
-            row = [
-                "1", str(pos + 1), ".", ref, alt,
-                ".", ".", ".", "GT"
-            ] + genotypes
-            f.write("\t".join(row) + "\n")
-
-    logging.info(f"Saved file -> {filename}")
 
 def write_summary(names, stack, gf, cf, variants):
     """
@@ -280,3 +161,39 @@ def create_plot(core_fractions: List[float], names: List[str]) -> bool:
     except ImportError:
         logging.info("Progressive core plot failed, skipping...")
         return False
+
+def stacks_to_fasta(stack_dict, filename):
+    with open(filename, 'w') as f:
+         for name, stacks in stack_dict.items():
+            seq = ''.join([''.join(s.tolist()) for s in stacks])
+            f.write(f">{name}\n{seq}\n")
+
+def stacks_to_csv(full_stacks, contig_names, ref_masks, core_masks, const_masks):
+    out = np.array(
+        ["CHROM", "POS", "FILTER"] + list(full_stacks.keys())
+    )
+    for i, contig in enumerate(contig_names):
+        ref_mask  = ref_masks[i]
+        core_mask = core_masks[i]
+        const_mask = const_masks[i]
+
+        first = True
+        for name, stacks in full_stacks.items():
+            stack = stacks[i]
+            if first:
+                n_sites = stack.shape[0]
+                chrom   = np.array([contig]*n_sites)
+                pos     = np.array(range(1,n_sites+1))
+
+                ref_mask_filt   = np.where(ref_mask, "ambiguous_reference", "")
+                core_mask_filt  = np.where(core_mask, "below_min_cf", "")
+                const_mask_filt = np.where(const_mask, "constant", "")
+                filt = np.where(~ref_mask | ~core_mask | ~const_mask, ref_mask_filt + core_mask_filt + const_mask_filt, ref_mask_filt + ";" + core_mask_filt + ";" + const_mask_filt)
+
+                block = np.vstack([chrom, pos, filt])
+                first = False
+
+            block = np.vstack([block, stack])
+        out = np.vstack([out, np.transpose(block)])
+
+    np.savetxt("full.csv", out, delimiter=",", fmt="%s")

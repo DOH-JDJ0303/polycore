@@ -4,10 +4,8 @@ pyproject.toml
 src/polycore/__init__.py
 src/polycore/__main__.py
 src/polycore/cli.py
-src/polycore/collapse.py
-src/polycore/core_mask.py
-src/polycore/distance.py
-src/polycore/io_ops.py
+src/polycore/core.py
+src/polycore/io.py
 src/polycore/utils.py
 src/polycore.egg-info/PKG-INFO
 src/polycore.egg-info/SOURCES.txt

@@ -3,8 +3,7 @@
 PolyCore is a Python-based tool for **core genome analysis in polyploid organisms**.  
 It loads reference and sample FASTA files, collapses identical sequences, filters by genome/core fractions, and produces:
 
-- Core alignment FASTA files
-- Variant alignment FASTA/VCF files
+- Core / Full alignment FASTA files
 - Pairwise distance matrices (wide and long formats)
 - Per-sample summary table
 - Progressive core fraction plot (HTML)
@@ -26,7 +25,7 @@ It loads reference and sample FASTA files, collapses identical sequences, filter
 
 #### Option 1 - Use the container (Preferred Method):
 ```
-docker pull public.ecr.aws/o8h2f0o1/polycore:1.0
+docker pull public.ecr.aws/o8h2f0o1/polycore:1.0.0
 ```
 
 #### Option 2 - Clone the repository and install:
@@ -51,8 +50,6 @@ polycore \
 ### Common options
 - `--min-gf` : Minimum genome fraction per sample (default: 0.9)
 - `--min-cf` : Minimum fraction of population required per site (default: 0.95)
-- `--min-pf` : Minimum fraction of alt allele per site (for SNPs vs SNVs)
-- `--min-pn` : Minimum number of samples with alt allele per site
 - `--ploidy` : Force ploidy (otherwise auto-detected)
 - `--progressive` : Enable soft-core (progressive) calculation
 - `--split` : Treat each contig in each assembly as a separate sample
@@ -68,7 +65,7 @@ Outputs
 
 - `core.aln` : Core alignment (variants only, FASTA)
 - `core.full.aln` : Full core alignment (FASTA)
-- `core.vcf` : Variants in VCF format
+- `full.csv` : Per-site summary for all passing samples
 - `dist_wide.csv` : Pairwise distance matrix (wide)
 - `dist_long.csv` : Pairwise distance matrix (long/tidy)
 - `summary.csv` : Per-sample statistics

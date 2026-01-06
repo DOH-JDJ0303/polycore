@@ -1,100 +1,141 @@
-import sys, time, argparse, logging, numpy as np
-from .utils import set_up_logging, IUPAC_BITS, auto_chunk_size
-from .io_ops import load_sequences, write_distances, write_fasta_from_array, write_vcf_from_array, write_summary
-from .collapse import collapse_sequences, expand_results, expand_distances, expand_vector
-from .distance import set_ploidy, create_stack, to_bits, calculate_distances
-from .core_mask import filter_sequences, find_core, find_const
-from typing import List, Tuple, Dict, Optional
+import sys
+import time
+import argparse
+import logging
+
+from .io import load_sequences, stacks_to_fasta, stacks_to_csv, write_summary
+from .utils import (
+    set_up_logging,
+    IUPAC_BITS,
+    Config,
+    WorkflowState,
+    build_config
+)
+from .core import (
+    set_ploidy,
+    find_core,
+    find_const,
+    find_diffs,
+    filter_samples,
+    calculate_genome_fraction,
+    expand_stacks,
+    find_valid_sites,
+    build_stacks,
+)
+
+__version__ = "1.0.0"
 
 
-__version__ = "1.1"
-
-def build_parser():
-    p = argparse.ArgumentParser(description="PolyCore - Core genome analysis on polyploid organisms")
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="PolyCore - Core genome analysis on polyploid organisms"
+    )
     p.add_argument("input", nargs="+", help="Input sequences")
     p.add_argument("--ref", help="Reference FASTA file")
     p.add_argument("--mask", help="Bed file with coordinates of sites to exclude.")
+
     p.add_argument("--min-gf", type=float, default=0.9, help="Minimum genome fraction per input")
     p.add_argument("--min-cf", type=float, default=0.95, help="Minimum fraction with valid data per site")
-    p.add_argument("--min-pf", type=float, default=0, help="Min fraction with alt per site (SNP vs SNV)")
-    p.add_argument("--min-pn", type=float, default=0, help="Min # args.inputs with alt per site (SNP vs SNV)")
-    p.add_argument("--progressive", action='store_true')
+
+    p.add_argument("--progressive", action="store_true")
     p.add_argument("--ploidy", type=int)
     p.add_argument("--chunk-size", type=int, help="Sites per chunk for pairwise diffs (controls memory)")
-    p.add_argument("--split", action='store_true', help="Treat each contig in a multi-fasta file as a separate sample.")
-    p.add_argument("--ref-by-name", action='store_true', help="The file or contig labelled as 'reference' is treated as the reference ('not case sensitive).")
-    p.add_argument("--snippy", action='store_true', help="Shortcut when using the Snippy *.full.aln file as input. Sets 'split' and 'ref-by-name' to True.")
+
+    p.add_argument("--split", action="store_true",
+                   help="Treat each contig in a multi-fasta file as a separate sample.")
+    p.add_argument("--ref-by-name", action="store_true",
+                   help="Treat file/contig labeled 'reference' as the reference (case-insensitive).")
+    p.add_argument("--snippy", action="store_true",
+                   help="Shortcut for Snippy *.full.aln input (sets split and ref-by-name).")
+
     p.add_argument("--version", action="version", version=__version__)
     return p
 
-def main(argv=None):
-    argv = argv or sys.argv[1:]
+
+def main(argv=None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+
     set_up_logging()
     logger = logging.getLogger(__name__)
-    parser = build_parser()
-    args = parser.parse_args(argv)
 
+    args = build_parser().parse_args(argv)
     start = time.time()
-    logger.info(f"PolyCore v{__version__} starting")
+
+    logger.info("PolyCore v%s starting", __version__)
+
+    state = WorkflowState()
+    state.cfg = build_config(args)
+
+    # Resolve input list once
+    state.files = ([args.ref] + args.input) if args.ref else list(args.input)
 
     try:
-        split       = True if args.snippy else args.split
-        ref_by_name = True if args.snippy else args.split
+        # ---- Load / encode -------------------------------------------------
+        t0 = time.time()
+        logger.info("Loading sequences...")
+        load_sequences(state)
+        logger.info("Loaded sequences in %.2fs", time.time() - t0)
 
-        files = [args.ref] + args.input if args.ref else args.input
-        sequences, orig_names = load_sequences(files, split=split, ref_by_name=ref_by_name)
+        t0 = time.time()
+        logger.info("Setting ploidy / IUPAC encoding...")
+        set_ploidy(state, IUPAC_BITS)
+        logger.info("Encoding ready in %.2fs", time.time() - t0)
 
-        # Collapse → bitmaps → stack
-        sequences, names_rep, idx_map = collapse_sequences(sequences, orig_names)
-        ploidy, bit_map, bit_lut = set_ploidy(sequences, IUPAC_BITS, args.ploidy)
-        stack, valid_bases = create_stack(sequences, bit_map)
+        # ---- Build stacks --------------------------------------------------
+        t0 = time.time()
+        logger.info("Building stacks...")
+        build_stacks(state)
+        logger.info("Stacks built in %.2fs", time.time() - t0)
 
-        # Filtering
-        stack_valid, gf, filter_mask = filter_sequences(
-            stack, np.array(names_rep), valid_bases, args.min_gf, args.mask
-        )
-        stack_filt  = stack_valid[filter_mask, :]
-        names_filt  = np.array(names_rep)[filter_mask]
-        gf_filt     = gf[filter_mask]
+        # ---- Valid sites + genome fraction --------------------------------
+        t0 = time.time()
+        logger.info("Finding valid sites...")
+        find_valid_sites(state)
+        logger.info("Valid sites computed in %.2fs", time.time() - t0)
 
-        # Core only on kept reps
-        core, names_core, cfs = find_core(
-            stack_filt, names_filt, gf_filt,
-            threshold=args.min_cf, progressive=args.progressive
-        )
+        t0 = time.time()
+        logger.info("Calculating genome fraction...")
+        calculate_genome_fraction(state)
+        logger.info("Genome fraction computed in %.2fs", time.time() - t0)
 
-        # Vars on core set
-        vars = find_const(core, names_core, ploidy, args.min_pf, args.min_pn)
+        # ---- Filter + core -------------------------------------------------
+        t0 = time.time()
+        logger.info("Filtering samples (min_gf=%.3f)...", state.cfg.min_gf)
+        filter_samples(state)
+        logger.info("Filtering done in %.2fs", time.time() - t0)
 
-        # Distances on core variants
-        bits = to_bits(vars, bit_lut)
-        chunk_size = args.chunk_size or auto_chunk_size(bits.shape[0])
-        diffs = calculate_distances(bits, ploidy, chunk_size)
+        t0 = time.time()
+        logger.info("Finding core sites (min_cf=%.3f, progressive=%s)...",
+                    state.cfg.min_cf, state.cfg.progressive)
+        find_core(state)
+        logger.info("Core computed in %.2fs", time.time() - t0)
 
-        # ---------------- Expansion strategy ----------------
-        no_mask = np.full(stack_valid.shape[0], True, dtype=bool)
-        stack_exp, names_exp = expand_results(stack_valid, no_mask, idx_map, orig_names)
-        gf_exp, _ = expand_results(np.array(gf),  no_mask, idx_map,  orig_names)
-        cfs_exp, _ = expand_results(np.array(cfs), filter_mask, idx_map, orig_names)
-        core_exp, names_core_exp = expand_results(core, filter_mask, idx_map, orig_names, keep_filtered=False)
-        vars_exp, _ = expand_results(vars, filter_mask, idx_map, orig_names, keep_filtered=False)
-        diffs0_exp, _ = expand_results(diffs[0,:], filter_mask, idx_map, orig_names)
-        diffs_exp, diffs_exp_names  = expand_distances(diffs, filter_mask, idx_map, orig_names)
+        # ---- Const + diffs -------------------------------------------------
+        t0 = time.time()
+        logger.info("Finding constant sites...")
+        find_const(state)
+        logger.info("Constant sites computed in %.2fs", time.time() - t0)
 
-        # ---------------- Write outputs ----------------
-        # Distances/FASTA/VCF: only core set (no filtered samples)
-        write_distances(diffs_exp_names, diffs_exp)
-        write_fasta_from_array(core_exp, names_core_exp, "core.full.aln")
-        write_fasta_from_array(vars_exp, names_core_exp, "core.aln")
-        write_vcf_from_array(vars_exp, names_core_exp, "core.vcf")
+        t0 = time.time()
+        logger.info("Finding differences...")
+        find_diffs(state)
+        logger.info("Differences computed in %.2fs", time.time() - t0)
 
-        # Summary: all originals
-        write_summary(names_exp, stack_exp, gf_exp, cfs_exp, diffs0_exp)
+        # ---- Expand + outputs ---------------------------------------------
+        t0 = time.time()
+        logger.info("Expanding stacks for output alignments...")
+        expand_stacks(state)
+        logger.info("Expanded stacks in %.2fs", time.time() - t0)
 
-        logger.info(f"Done in {time.time()-start:.1f}s")
+        logger.info("Writing outputs...")
+        stacks_to_fasta(state.full_mask_stacks, "core.full.aln")
+        stacks_to_fasta(state.core_mask_stacks, "core.aln")
+        stacks_to_csv(state)
+
+        write_summary(state)
+
+        logger.info("Completed successfully in %.1fs", time.time() - start)
 
     except Exception:
-        logger = logging.getLogger(__name__)
         logger.exception("Failed after %.1fs", time.time() - start)
         sys.exit(1)
-

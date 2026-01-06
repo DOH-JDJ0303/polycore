@@ -7,7 +7,6 @@ def collapse_sequences(sequences: List[str], names: List[str]) -> Tuple[List[str
 
     Returns:
         unique_sequences : list of unique sequence strings
-        rep_names        : representative names
         idx_map          : dict {rep_idx -> [orig_indices]} mapping reps to their group
     """
     logger = logging.getLogger(__name__)
@@ -15,15 +14,14 @@ def collapse_sequences(sequences: List[str], names: List[str]) -> Tuple[List[str
     seen = {}
     idx_map: Dict[int, List[int]] = {}
     unique_sequences = []
-    rep_names = []
 
     # always keep the reference (index 0)
     unique_sequences.append(sequences[0])
-    rep_names.append(names[0])
-    seen[sequences[0]] = 0
+    seen[''.join(sequences[0])] = 0
     idx_map[0] = [0]
 
-    for i, (seq, name) in enumerate(zip(sequences[1:], names[1:]), start=1):
+    for i, (seq_list, name) in enumerate(zip(sequences[1:], names[1:]), start=1):
+        seq = ''.join(seq_list)
         if seq in seen:
             rep_idx = seen[seq]
             idx_map[rep_idx].append(i)
@@ -31,7 +29,6 @@ def collapse_sequences(sequences: List[str], names: List[str]) -> Tuple[List[str
             rep_idx = len(unique_sequences)
             seen[seq] = rep_idx
             unique_sequences.append(seq)
-            rep_names.append(name)
             idx_map[rep_idx] = [i]
 
     # summary: report which originals collapsed into which rep
@@ -40,37 +37,7 @@ def collapse_sequences(sequences: List[str], names: List[str]) -> Tuple[List[str
         if len(group_names) > 1:
             logger.info(f"Identical samples will be treated as one: {group_names} -> ")
 
-    return unique_sequences, rep_names, idx_map
-
-def expand_results(filtered_array: np.ndarray, filter_mask: np.ndarray, idx_map: Dict[int, List[int]], orig_names: List[str], keep_filtered: bool = True):
-    """
-    Expand filtered results back to original sample space.
-    Works for both 1D and 2D arrays.
-    """
-    fi = 0  # Index into filtered_array
-    expanded_rows = []
-    expanded_names = []
-    
-    for mi, oi in idx_map.items():
-        if filter_mask[mi]:
-            val = filtered_array[fi]
-            fi += 1
-        else:
-            if not keep_filtered:
-                continue
-            # Create appropriate null value based on array dimensions
-            if filtered_array.ndim == 1:
-                val = np.nan
-            else:
-                # For 2D, create a row of NaNs with same width as filtered_array
-                val = np.full(filtered_array.shape[1], np.nan)
-        
-        # Expand to all original samples in this group
-        for i in oi:
-            expanded_rows.append(val)
-            expanded_names.append(orig_names[i])
-    
-    return np.array(expanded_rows), expanded_names
+    return unique_sequences, idx_map
 
 def expand_distances(diffs, filter_mask, idx_map, orig_names):
     """
@@ -104,11 +71,34 @@ def expand_distances(diffs, filter_mask, idx_map, orig_names):
 
     return expanded, expanded_names
 
+def expand_stacks(names_orig, names_filt, idx_maps, stacks, ref_masks, core_masks, const_masks):
+    full_stacks = {}
+    core_stacks = {}
+    for i, n in enumerate(names_orig):
+        if n not in names_filt:
+            continue
+        idx_map = []
+        for m in idx_maps:
+            for k, v in m.items():
+                if i in v:
+                    idx_map.append(k)
 
+        # full stack masked
+        full_stacks_by_name = []
+        core_stacks_by_name = []
+        for j, stack in enumerate(stacks):
+            idx = idx_map[j]
 
-def expand_vector(vector: np.ndarray, names: List[str], idx_map: Dict[int, List[int]]):
-    expanded = []
-    for rep_idx, val in enumerate(vector):
-        for _ in idx_map[rep_idx]:
-            expanded.append(val)
-    return expanded
+            ref_mask   = ref_masks[j]
+            core_mask  = core_masks[j]
+            const_mask = const_masks[j]
+            full_stack = stack[idx].copy()
+
+            full_stack[(ref_mask & core_mask)] = 'N'
+            core_stack = full_stack[(~const_mask & ~ref_mask)]
+            full_stacks_by_name.append(full_stack)
+            core_stacks_by_name.append(core_stack)
+        full_stacks[n] = full_stacks_by_name
+        core_stacks[n] = core_stacks_by_name
+
+    return full_stacks, core_stacks
