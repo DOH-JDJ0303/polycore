@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: polycore
-Version: 1.1.0
+Version: 1.0.0
 Summary: Core genome analysis for (poly)ploid organisms
 Author-email: Jared Johnson <jared.johnson@doh.wa.gov>
 License:                                  Apache License
@@ -39,8 +39,7 @@ Dynamic: license-file
 PolyCore is a Python-based tool for **core genome analysis in polyploid organisms**.  
 It loads reference and sample FASTA files, collapses identical sequences, filters by genome/core fractions, and produces:
 
-- Core alignment FASTA files
-- Variant alignment FASTA/VCF files
+- Core / Full alignment FASTA files
 - Pairwise distance matrices (wide and long formats)
 - Per-sample summary table
 - Progressive core fraction plot (HTML)

@@ -72,7 +72,7 @@ def load_sequences(state) -> None:
                 rec_count += 1
                 if cfg.split:
                     sample_name = sanitize_contig_name(rec["name"])
-                    contig_name = "contig"
+                    contig_name = "Reference"
                     rec_index = 0
                 else:
                     sample_name = get_fasta_name(filepath)
@@ -216,21 +216,14 @@ def write_summary(state, path: str = "summary.csv") -> None:
     for k in required:
         if getattr(state, k, None) is None:
             raise ValueError(f"write_summary: state.{k} is required but missing")
-
-    # Total length excluding ref-masked sites; also count how many ref-masked exist total
-    ref_masked_total = 0
-    usable_length_total = 0
-    for mask in state.ref_masks:
-        mask = np.asarray(mask, dtype=bool)
-        ref_masked_total += int(mask.sum())
-        usable_length_total += int((~mask).sum())
-
-    n_valid_arr = np.asarray(state.n_valid, dtype=np.int64)
+        
+    n_miss_arr = np.asarray(state.n_miss, dtype=np.int64)
+    n_mix_arr = np.asarray(state.n_mix, dtype=np.int64)
     gfs_arr = np.asarray(state.gfs, dtype=float)
     cfs_arr = np.asarray(state.cfs, dtype=float)
 
-    if len(n_valid_arr) != len(state.names):
-        raise ValueError("write_summary: state.n_valid length does not match state.names")
+    if len(n_miss_arr) != len(state.names):
+        raise ValueError("write_summary: state.n_miss length does not match state.names")
     if len(gfs_arr) != len(state.names):
         raise ValueError("write_summary: state.gfs length does not match state.names")
 
@@ -242,28 +235,29 @@ def write_summary(state, path: str = "summary.csv") -> None:
             f"(len(cfs)={len(cfs_arr)} len(core_order)={len(state.core_order)})"
         )
 
-    missing_arr = (usable_length_total - n_valid_arr).astype(np.int64)
-    if missing_arr.size > 0:
-        missing_arr[0] += ref_masked_total  # add ref-masked back onto reference missing
-
     variants = state.dist[0]
     
     # Emit rows in core_order
-    lines = ["name,length,missing,genome_fraction,core_fraction,variants"]
+    lines = ["name,length,masked,missing,mixed,genome_fraction,core_fraction,included,variants"]
     for out_i, orig_idx in enumerate(state.core_order):
         nm = state.names[orig_idx]
         gf = float(gfs_arr[orig_idx])
         cf = float(cfs_arr[out_i])  # cfs aligned to core_order
-        miss = int(missing_arr[orig_idx])
-        var = str(variants[state.names_filt.index(nm)]) if nm in state.names_filt else 'null'
-
+        miss = int(n_miss_arr[orig_idx])
+        mix = int(n_mix_arr[orig_idx])
+        incl = nm in state.names_filt
+        var = str(variants[state.names_filt.index(nm)]) if incl else 'null'
+        
         lines.append(
             ",".join([
                 nm,
-                str(int(usable_length_total)),
+                str(state.n_total),
+                str(state.n_mask),
                 str(miss),
+                str(mix),
                 f"{gf:.6f}",
                 f"{cf:.6f}",
+                str(incl),
                 var,
             ])
         )
@@ -273,8 +267,7 @@ def write_summary(state, path: str = "summary.csv") -> None:
 
     logger.info("Saved file -> %s", path)
     logger.info(
-        "Summary stats: usable_length=%d ref_masked=%d samples=%d",
-        usable_length_total, ref_masked_total, len(state.names)
+        f"Summary stats: n_total={state.n_total} n_valid={state.n_valid} n_mask={state.n_mask} n_miss_ref={state.n_miss_ref} samples={len(state.names)}"
     )
 
 

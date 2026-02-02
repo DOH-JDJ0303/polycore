@@ -14,6 +14,7 @@ IUPAC_BITS: Dict[str, int] = {
     "R": 1 | 4, "Y": 2 | 8, "S": 4 | 2, "W": 1 | 8, "K": 4 | 8, "M": 1 | 2,
     "B": 2 | 4 | 8, "D": 1 | 4 | 8, "H": 1 | 2 | 8, "V": 1 | 2 | 4,
 }
+MIXED_IUPAC = np.array(list("RYSWKMBDHV"))
 ALLELES: List[int] = [1, 2, 4, 8]
 POPCOUNT16 = np.array([bin(i).count("1") for i in range(16)], dtype=np.uint8)
 
@@ -67,7 +68,12 @@ class WorkflowState:
     core_masked_stacks: Any = None
 
     # Site info
-    n_valid: Any = None
+    n_total: int = 0
+    n_mask: int = 0
+    n_miss_ref: int = 0
+    n_valid: int = 0
+    n_miss: Any = None
+    n_mix: Any = None
 
     # Site masks
     ref_masks: Any = None

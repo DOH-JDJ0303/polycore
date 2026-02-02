@@ -12,6 +12,7 @@ from .utils import (
     calculate_distances,
     expand_distances,
     ambiguity_size,
+    MIXED_IUPAC
 )
 
 logger = logging.getLogger(__name__)
@@ -108,9 +109,10 @@ def gather_bed_mask(state, bed_file: Optional[str]) -> None:
         if n_masked == n_sites:
             raise ValueError(f"All sites were masked by BED regions for contig {contig!r}")
 
-        st[:, m] = "N"
         pct = 100.0 * n_masked / n_sites
         logger.info(f"BED mask: contig={contig} masked_sites={n_masked} ({pct:.2f}%)")
+
+    state.n_mask = total
 
     logger.info(f"BED masking complete. Total masked sites across contigs: {total}")
 
@@ -122,18 +124,30 @@ def gather_bed_mask(state, bed_file: Optional[str]) -> None:
 
 def calculate_genome_fraction(state) -> None:
     """Compute genome fraction per sample relative to the reference (index 0)."""
-    if not state.n_valid:
-        raise ValueError("calculate_genome_fraction: state.n_valid is missing/empty")
+    if state.n_valid is None:
+        raise ValueError("calculate_genome_fraction: state.n_valid is missing")
 
-    ref_valid = state.n_valid[0]
-    if ref_valid <= 0:
-        raise ValueError("calculate_genome_fraction: reference has 0 valid sites")
+    if state.n_valid == 0:
+        raise ValueError("calculate_genome_fraction: no valid sites")
 
-    state.gfs = [float(v) / ref_valid for v in state.n_valid]
+    if not state.n_miss:
+        raise ValueError("calculate_genome_fraction: state.n_miss is missing")
+
+    # Reference is always index 0
+    gfs = []
+    gf_ref = [1.0]
+
+    for v in state.n_miss[1:]:
+        gfs.append((state.n_valid - float(v)) / state.n_valid)
+
+    state.gfs = gf_ref + gfs
+
     logger.info(
-        f"Genome fraction: ref_valid={ref_valid}; "
-        f"min={np.min(state.gfs):.3f} median={np.median(state.gfs):.3f} max={np.max(state.gfs):.3f}"
+        f"Genome fraction: min={np.min(gfs):.3f} "
+        f"median={np.median(gfs):.3f} "
+        f"max={np.max(gfs):.3f}"
     )
+
 
 
 def filter_samples(state) -> None:
@@ -429,30 +443,49 @@ def find_valid_sites(state) -> None:
         gather_bed_mask(state, state.cfg.bed_file)
 
     ref_masks: List[np.ndarray] = []
-    n_valid = [0 for _ in state.names]
+    n_miss  = [0 for _ in state.names]
+    n_mix   = [0 for _ in state.names]
+    n_total = 0
+    n_valid = 0
 
     for contig_i, stack in enumerate(state.stacks):
-        ref_mask = stack[0] == "N"
+        n_total += stack[0].size
+
+        ref_mask = (stack[0] == "N") | (state.bed_mask[contig_i] if state.bed_mask is not None else False)
         ref_masks.append(ref_mask)
 
-        # Valid counts per representative row, excluding ref-masked columns
-        rep_valid_counts = np.sum(stack[:, ~ref_mask] != "N", axis=1)
+        n_valid += np.sum(~ref_mask)
+        
+        # missing and mixed counts per representative row, excluding ref-masked columns
+        sub = stack[:, ~ref_mask]
+
+        n_miss_rep  = (sub == "N").sum(axis=1)
+        n_mixed_rep = np.isin(sub, MIXED_IUPAC).sum(axis=1)
 
         # Add rep counts back to original samples via idx_map
         idx_map = state.idx_maps[contig_i]
-        for rep_idx, count in enumerate(rep_valid_counts):
+        for rep_idx, (miss, mix) in enumerate(zip(n_miss_rep, n_mixed_rep)):
             for orig_idx in idx_map[rep_idx]:
-                n_valid[orig_idx] += int(count)
+                n_miss[orig_idx] += int(miss)
+                n_mix[orig_idx]  += int(mix)
 
         contig_name = state.contigs[contig_i] if state.contigs else contig_i
         logger.info(f"Valid sites: contig={contig_name} valid_cols={int((~ref_mask).sum())} (of {stack.shape[1]})")
 
-    state.ref_masks = ref_masks
-    state.n_valid = n_valid
+    # Update missing sites in reference
+    n_miss_ref = n_total - n_valid - state.n_mask
+    n_miss[0] = n_miss_ref
 
+    state.n_total    = n_total
+    state.n_valid    = n_valid
+    state.n_miss_ref = n_miss_ref
+    state.n_miss     = n_miss
+    state.n_mix      = n_mix
+    state.ref_masks  = ref_masks
+    
     logger.info(
-        f"Total valid sites per sample (summed contigs): "
-        f"min={int(np.min(n_valid))} median={int(np.median(n_valid))} max={int(np.max(n_valid))}"
+        f"Missing sites per sample (summed contigs): "
+        f"min={int(np.min(n_miss))} median={int(np.median(n_miss))} max={int(np.max(n_miss))}"
     )
 
 def expand_stacks(state) -> None:
