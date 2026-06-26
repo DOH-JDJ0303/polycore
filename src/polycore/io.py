@@ -27,9 +27,11 @@ def get_fasta_name(filepath: str) -> str:
         basename = os.path.splitext(basename)[0]
     return os.path.splitext(basename)[0]
 
+
 def sanitize_contig_name(name: str) -> str:
     """Make names safe and filesystem-friendly."""
     return re.sub(r"[^A-Za-z0-9._-]", "_", name.split()[0])
+
 
 def sanitize_name(name: str) -> str:
     """Make names safe and filesystem-friendly."""
@@ -207,6 +209,8 @@ def write_summary(state, path: str = "summary.csv") -> None:
       - genome_fraction
       - core_fraction
       - variants: optional (proxy = sum of row distances) if state.dist exists and matches names
+      - MEAN_SNP_DIST, MIN_SNP_DIST, MAX_SNP_DIST: pairwise SNP distance stats,
+        excluding self-comparisons and the Reference sample
 
     Expects:
       - state.names, state.core_order, state.ref_masks, state.n_valid, state.gfs, state.cfs
@@ -236,9 +240,31 @@ def write_summary(state, path: str = "summary.csv") -> None:
         )
 
     variants = state.dist[0]
-    
+
+    # Build SNP distance stats per sample, excluding Reference and self-comparisons
+    # state.dist is aligned to state.names_filt, so use names_filt here
+    ref_label = "Reference"
+    snp_stats = {}
+    dist_matrix = state.dist
+    names = state.names_filt
+
+    for i, name in enumerate(names):
+        if name == ref_label:
+            continue
+        values = [
+            int(dist_matrix[i][j])
+            for j, other in enumerate(names)
+            if other != name and other != ref_label
+        ]
+        if values:
+            snp_stats[name] = {
+                "MEAN_SNP_DIST": round(sum(values) / len(values)),
+                "MIN_SNP_DIST": min(values),
+                "MAX_SNP_DIST": max(values),
+            }
+
     # Emit rows in core_order
-    lines = ["name,length,masked,missing,mixed,genome_fraction,core_fraction,included,variants"]
+    lines = ["name,length,masked,missing,mixed,genome_fraction,core_fraction,included,variants,MEAN_SNP_DIST,MIN_SNP_DIST,MAX_SNP_DIST"]
     for out_i, orig_idx in enumerate(state.core_order):
         nm = state.names[orig_idx]
         gf = float(gfs_arr[orig_idx])
@@ -247,7 +273,12 @@ def write_summary(state, path: str = "summary.csv") -> None:
         mix = int(n_mix_arr[orig_idx])
         incl = nm in state.names_filt
         var = str(variants[state.names_filt.index(nm)]) if incl else 'null'
-        
+
+        s = snp_stats.get(nm, {})
+        mean_snp = s.get("MEAN_SNP_DIST", "")
+        min_snp = s.get("MIN_SNP_DIST", "")
+        max_snp = s.get("MAX_SNP_DIST", "")
+
         lines.append(
             ",".join([
                 nm,
@@ -259,6 +290,9 @@ def write_summary(state, path: str = "summary.csv") -> None:
                 f"{cf:.6f}",
                 str(incl),
                 var,
+                str(mean_snp),
+                str(min_snp),
+                str(max_snp),
             ])
         )
 
