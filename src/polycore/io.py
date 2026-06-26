@@ -258,13 +258,13 @@ def write_summary(state, path: str = "summary.csv") -> None:
         ]
         if values:
             snp_stats[name] = {
-                "MEAN_SNP_DIST": round(sum(values) / len(values)),
-                "MIN_SNP_DIST": min(values),
-                "MAX_SNP_DIST": max(values),
+                "mean_snp_dist": round(sum(values) / len(values)),
+                "min_snp_dist": min(values),
+                "max_snp_dist": max(values),
             }
 
     # Emit rows in core_order
-    lines = ["name,length,masked,missing,mixed,genome_fraction,core_fraction,included,variants,MEAN_SNP_DIST,MIN_SNP_DIST,MAX_SNP_DIST"]
+    lines = ["name,length,masked,missing,mixed,genome_fraction,core_fraction,included,variants,mean_snp_dist,min_snp_dist,max_snp_dist"]
     for out_i, orig_idx in enumerate(state.core_order):
         nm = state.names[orig_idx]
         gf = float(gfs_arr[orig_idx])
@@ -275,9 +275,9 @@ def write_summary(state, path: str = "summary.csv") -> None:
         var = str(variants[state.names_filt.index(nm)]) if incl else 'null'
 
         s = snp_stats.get(nm, {})
-        mean_snp = s.get("MEAN_SNP_DIST", "")
-        min_snp = s.get("MIN_SNP_DIST", "")
-        max_snp = s.get("MAX_SNP_DIST", "")
+        mean_snp = s.get("mean_snp_dist", "")
+        min_snp = s.get("min_snp_dist", "")
+        max_snp = s.get("max_snp_dist", "")
 
         lines.append(
             ",".join([
