@@ -125,15 +125,15 @@ The distance between two samples is the **total unmatched allele contribution** 
 | --------- | ----------- | ------------: | ------------: | -------------: |
 | A         | A           |             0 |             0 |              0 |
 | A         | G           |             1 |             2 |              3 |
-| A         | R (A/G)     |           - |             1 |            1.5 |
+| A         | R (A/G)     |             - |             1 |            1.5 |
 | R (A/G)   | R (A/G)     |             - |             0 |              0 |
-| R (A/G)   | W (A/T)     |           - |             1 |            1.5 |
+| R (A/G)   | W (A/T)     |             - |             1 |            1.5 |
 | R (A/G)   | B (C/G/T)   |             - |             - |              2 |
 | B (C/G/T) | B (C/G/T)   |             - |             - |              0 |
 | B (C/G/T) | D (A/G/T)   |             - |             - |              1 |
 | A         | N (unknown) |             - |             - |              - |
 
-`—` indicates that the comparison is not applicable because the ambiguity representation cannot be evenly scaled to the specified ploidy under the fixed-composition model.
+`-` indicates that the comparison is not applicable
 
 ### Interpretation
 
