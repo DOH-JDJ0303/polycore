@@ -104,7 +104,8 @@ polycore --split alignment.fasta
 Polycore requires that a reference sequence is defined. This sequence is used to valid sites when calculating the genome fraction. The reference genome can be specified in the following manner:
 
 - **Sequence order** - The first sequence in the alignment is treated as the reference
-- **Sequence name** - The contig or FASTA file specified by `ref`
+- **Sequence name** - The contig or FASTA file labelled `reference` is treated as the reference when using `--ref-by-name`
+- **By file** - The file supplied via `--ref` is treated as the reference
 
 ## Distance Calculation
 
