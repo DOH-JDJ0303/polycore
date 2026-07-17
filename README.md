@@ -118,7 +118,6 @@ Ploidy can be determined automatically or specified by the user using the `--plo
 | `RYSWKM`    | 2      |
 | `BVDH`      | 3      |
 
-
 ## Masking Invalid Sites
 Invalid sites are coded to IUPAC code `N`. Sites that are not valid in the reference are masked to `N` across every sample in the alignment. At all remaining sites, IUPAC codes that exceed the declared ploidy, along with any non-IUPAC codes, are converted to `N` on a per-sample basis.
 
