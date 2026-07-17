@@ -69,6 +69,10 @@ def main(argv=None) -> None:
     # Resolve input list once
     state.files = ([args.ref] + args.input) if args.ref else list(args.input)
 
+    if len(state.files) == 1 and not args.split:
+        logger.error("Only one FASTA file provided. Re-run with the '--split' parameter to treat each contig as a separate sample.")
+        exit()
+
     try:
         # ---- Load / encode -------------------------------------------------
         t0 = time.time()
