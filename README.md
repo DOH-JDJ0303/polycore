@@ -101,11 +101,53 @@ polycore --split alignment.fasta
 ```
 
 ### Reference Sequence
-Polycore requires that a reference sequence is defined. This sequence is used to valid sites when calculating the genome fraction. The reference genome can be specified in the following manner:
+Polycore uses a *reference** to calculate each sample's genome fraction. Only sites with valid information (non-`N`) in the reference are considered. The sequence used as the reference is defined in the following manner:
 
-- **Sequence order** - The first sequence in the alignment is treated as the reference
-- **Sequence name** - The contig or FASTA file labelled `reference` is treated as the reference when using `--ref-by-name`
-- **By file** - The file supplied via `--ref` is treated as the reference
+- **Sequence order** - The first sequence in the alignment is treated as the reference. Sequences supplied via the `--ref` parameter are treated as the first sequence.
+- **Sequence name** - The contig or FASTA file labelled `reference` is treated as the reference when using the `--ref-by-name` parameter. This supersedes reference selection by sequence order.
+
+> [!NOTE]
+> The `--snippy` parameter is the same as running `--split --ref-by-name`.
+
+## Ploidy Determination
+Ploidy can be determined automatically or specified by the user using the `--ploidy` parameter. When not specified, Polycore sets the ploidy based on the IUPAC codes observed within the multiple sequence alignment using the rules shown below:
+
+| IUPAC Codes | Ploidy |
+| ----------- | ------ |
+| `ATCG`      | 1      |
+| `RYSWKM`    | 2      |
+| `BVDH`      | 3      |
+
+
+## Masking Invalid Sites
+Invalid sites are coded to IUPAC code `N`. Sites that are not valid in the reference are masked to `N` across every sample in the alignment. At all remaining sites, IUPAC codes that exceed the declared ploidy, along with any non-IUPAC codes, are converted to `N` on a per-sample basis.
+
+### Example
+```
+Input alignment (--ploidy 2):
+
+reference  ACGT A ACGT A ACGT N ACGT
+sample_1   ACGT B ACGT R ACGT A ACGT
+sample_2   ACGT Y ACGT X ACGT R ACGT
+
+After conversion:
+
+reference  ACGT A ACGT A ACGT N ACGT
+sample_1   ACGT N ACGT R ACGT N ACGT
+sample_2   ACGT Y ACGT N ACGT N ACGT
+```
+
+## Genome Fraction Calculation
+The genome fraction of each sample is calculated as the fraction of valid reference sites that are also valid in the sampel:
+
+```
+genome fraction = valid sample sites / valid reference sites
+```
+
+Samples with genome fractions below the threshold declared by `--min-gf` are excluded from the analysis.
+
+## Core Genome Calculation
+The core genome is defined as genome positions with valid IUPAC codes in the minimum fraction of samples (reference inclusive) defined by the core fraction threshold, `--min-cf`. Genome positions that do not meet this minimum threshold are excluded from the core genome analysis. By default, the core genome is calculated in a single step, using all samples that pass the minimum genome fraction threshold. It is also possible to calculate the core genome *progressively* using the `--progressive` parameters. This calculates the core genome following the addition of each sample sequentially, in order of genome fraction size. The final core genome is **indentical** regardless of which method is used. The *progressive* method is provided as a means of measuring how your core genome size changes as your population grows.
 
 ## Distance Calculation
 
