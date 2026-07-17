@@ -17,7 +17,7 @@ IUPAC_BITS: Dict[str, int] = {
 MIXED_IUPAC = np.array(list("RYSWKMBDHV"))
 ALLELES: List[int] = [1, 2, 4, 8]
 POPCOUNT16 = np.array([bin(i).count("1") for i in range(16)], dtype=np.uint8)
-
+COUNT_DENOM = 12  # lcm(1..4): makes denom*ploidy/k integral for any popcount k
 
 # -----------------------------------------------------------------------------
 # Dataclasses
@@ -289,7 +289,11 @@ def expand_distances(diffs, filter_map, idx_map, orig_names, names_filt):
         for b, gb in enumerate(groups):
             rb = len(gb)
             if ra and rb:
-                expanded[r0 : r0 + ra, c0 : c0 + rb] = diffs[a, b]
+                block = expanded[r0:r0+ra, c0:c0+rb]
+                block[:] = diffs[a, b]
+                if a == b:
+                    d = np.arange(ra)
+                    block[d, d] = 0
             c0 += rb
         r0 += ra
 
@@ -319,47 +323,28 @@ def to_bits(sequences: np.ndarray, lut) -> np.ndarray:
     return lut[codes]
 
 
-def build_match_table(ploidy: int) -> np.ndarray:
-    """Build lookup table[m1, m2] = number of matching copies between two masks at this ploidy."""
-    table = np.zeros((16, 16), dtype=np.uint8)
-
-    # Precompute counts for all masks once
-    cnt = [_mask_to_counts(m, ploidy) for m in range(16)]
-
-    for m1 in range(16):
-        c1 = cnt[m1]
-        for m2 in range(16):
-            c2 = cnt[m2]
-            table[m1, m2] = np.minimum(c1, c2).sum()
-
-    return table
-
-
-def _mask_to_counts(mask: int, ploidy: int) -> np.ndarray:
-    """
-    Convert a 4-bit IUPAC mask (0..15) to a length-4 allele count vector
-    under the fixed-composition interpretation:
-    - k = popcount(mask)
-    - if k == 0: [0,0,0,0] (unknown)
-    - if k == 1: put all ploidy copies on that allele
-    - if k == ploidy: 1 copy on each allele in the mask
-    """
-    k = POPCOUNT16[mask]
-    counts = np.zeros(4, dtype=np.uint8)
-
+def _mask_to_counts(mask: int, ploidy: int, denom: int = COUNT_DENOM) -> np.ndarray:
+    """Length-4 allele count vector, scaled by `denom`, splitting copies
+    uniformly across the alleles present in the mask."""
+    k = int(POPCOUNT16[mask])
+    counts = np.zeros(4, dtype=np.int64)
     if k == 0:
         return counts
-
-    idxs = [i for i, bit in enumerate(ALLELES) if mask & bit]
-
-    if k == 1:
-        counts[idxs[0]] = ploidy
-    elif k == ploidy:
-        for i in idxs:
-            counts[i] = 1
-    # else: treat as unknown (all zeros) for k not in {1, ploidy}
-
+    per = (denom * ploidy) // k          # exact: k divides denom
+    for i, bit in enumerate(ALLELES):
+        if mask & bit:
+            counts[i] = per
     return counts
+
+
+def build_match_table(ploidy: int, denom: int = COUNT_DENOM) -> np.ndarray:
+    """table[m1, m2] = matching copies, scaled by `denom`."""
+    table = np.zeros((16, 16), dtype=np.int64)   # was uint8; scaled values overflow it
+    cnt = [_mask_to_counts(m, ploidy, denom) for m in range(16)]
+    for m1 in range(16):
+        for m2 in range(16):
+            table[m1, m2] = np.minimum(cnt[m1], cnt[m2]).sum()
+    return table
 
 
 def calculate_distances(bits: np.ndarray, ploidy: int, chunk_size: int) -> np.ndarray:
@@ -381,6 +366,7 @@ def calculate_distances(bits: np.ndarray, ploidy: int, chunk_size: int) -> np.nd
     n, L = bits.shape
     diffs = np.zeros((n, n), dtype=np.int64)
     match_table = build_match_table(ploidy)
+    scaled_ploidy = COUNT_DENOM * ploidy
 
     for start in range(0, L, chunk_size):
         end = min(start + chunk_size, L)
@@ -389,7 +375,7 @@ def calculate_distances(bits: np.ndarray, ploidy: int, chunk_size: int) -> np.nd
 
         for i in range(n):
             bi = chunk[i]
-            for j in range(i + 1, n):
+            for j in range(i, n):
                 bj = chunk[j]
 
                 # Only compare where both known
@@ -399,12 +385,13 @@ def calculate_distances(bits: np.ndarray, ploidy: int, chunk_size: int) -> np.nd
                     continue
 
                 # Matches per site from lookup; vectorized gather
-                matches = match_table[bi[both_known], bj[both_known]].astype(np.int64)
+                matches = match_table[bi[both_known], bj[both_known]]
 
                 # Mismatches per site = ploidy - matches
-                d = (ploidy - matches).sum()
+                d = (scaled_ploidy - matches).sum()
 
                 diffs[i, j] += d
-                diffs[j, i] += d
+                if i != j:                 # don't double-count the self pair
+                    diffs[j, i] += d
 
     return diffs

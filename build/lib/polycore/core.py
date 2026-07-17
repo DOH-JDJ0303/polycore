@@ -12,7 +12,8 @@ from .utils import (
     calculate_distances,
     expand_distances,
     ambiguity_size,
-    MIXED_IUPAC
+    MIXED_IUPAC,
+    COUNT_DENOM
 )
 
 logger = logging.getLogger(__name__)
@@ -44,10 +45,14 @@ def set_ploidy(state, bit_map):
             if o < 128:
                 lut[o] = bits
 
+    dropped = sorted(set(bit_map) - set(bit_map_filt))
+    if dropped:
+        logger.info(f"Codes above ploidy {ploidy} will be treated as missing: {', '.join(dropped)}")
+
     state.ploidy = ploidy
     state.bit_map = bit_map_filt
     state.bit_lut = lut
-    state.valid_bases = list(bit_map.keys())
+    state.valid_bases = list(bit_map_filt.keys())
 
 
 # -----------------------------------------------------------------------------
@@ -367,6 +372,10 @@ def find_diffs(state) -> None:
         chunk_size = state.cfg.chunk_size or auto_chunk_size(bits.shape[0])
         diff = calculate_distances(bits, state.ploidy, chunk_size)
 
+        max_possible = COUNT_DENOM * state.ploidy * n_var
+        if diff.max() > max_possible:
+            raise ValueError(f"contig {contig_name}: distance {diff.max()} exceeds max {max_possible}")
+
         diff_expanded, names_expanded = expand_distances(diff, filt_map, idx_map, state.names, state.names_filt)
 
         # Map this contig's expanded matrix into canonical indices
@@ -378,8 +387,9 @@ def find_diffs(state) -> None:
         # Add into the correct rows/cols
         diff_sum[np.ix_(idx, idx)] += diff_expanded.astype(np.int64, copy=False)
 
-    write_distances(state.names_filt, diff_sum)
-    state.dist = diff_sum
+    state.dist = diff_sum / COUNT_DENOM
+    
+    write_distances(state.names_filt, state.dist)
 
 
 # -----------------------------------------------------------------------------
