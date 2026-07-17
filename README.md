@@ -150,17 +150,14 @@ Samples with genome fractions below the threshold declared by `--min-gf` are exc
 The core genome is defined as genome positions with valid IUPAC codes in the minimum fraction of samples (reference inclusive) defined by the core fraction threshold, `--min-cf`. Genome positions that do not meet this minimum threshold are excluded from the core genome analysis. By default, the core genome is calculated in a single step, using all samples that pass the minimum genome fraction threshold. It is also possible to calculate the core genome *progressively* using the `--progressive` parameters. This calculates the core genome following the addition of each sample sequentially, in order of genome fraction size. The final core genome is **indentical** regardless of which method is used. The *progressive* method is provided as a means of measuring how your core genome size changes as your population grows.
 
 ## Distance Calculation
+Polycore estimates pairwise distances by splitting IUPAC codes into equal **allele fractions** and determing the **total unmatched allele fraction** across comparable sites. This unmatched fraction is then scaled by the ploidy to give the approximate number of unmatched alleles across all chromsome copies. It is critical to understand that IUPAC codes only tell you _which_ alleles were observed, <u> not</u> which chromosome copy the alleles are observed on. This means that **we must assume the location of heterozygous alleles**. Polycore does this by assuming each allele is split across each chromsome copy equally, thus resulting in the possibility of fractional distance values.
 
-PolyCore calculates pairwise distances by comparing allele representations at each valid site.
-
-IUPAC ambiguity codes are represented as **equal fractional allele contributions** across the alleles they encode. For example:
-
-* `A` represents 100% A
-* `R` represents equal contributions from A and G
-* `B` represents equal contributions from C, G, and T
-* `N` represents an unknown base and is not used for comparison
-
-The distance between two samples is the **total unmatched allele contribution** across comparable sites. Internally, fractional values are scaled by `COUNT_DENOM` to allow integer arithmetic before being converted back to the original distance scale.
+The example below demonstrates how IUPAC codes are broken down into allele fractions. Note that IUPAC codes that represent a number of alleles greater than the ploidy are treated as invalid and ignored.
+| IUPAC Code  | Haploid (P=1) | Diploid (P=2) | Triploid (P=3) |
+| ----------- | ------------: | ------------: | -------------: |
+|A            | 1 A         | 1 A         | 1 A          |
+|R            | -             | 1/2 A, 1/2 G  | 1/2 A, 1/2 G   |
+|B            | -             | -             | 1/3 C, 1/3 G, 1/3 T |
 
 ### Example single-site distances
 
